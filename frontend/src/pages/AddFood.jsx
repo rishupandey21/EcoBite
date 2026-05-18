@@ -1,146 +1,307 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { handleSuccess, handleError } from '../utils';
-
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../api/axios";
+import { handleSuccess, handleError } from "../utils";
 
 export default function AddFood() {
-  const { user } = useAuth();
   const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
-    foodName: '',
-    quantity: '',
-    category: 'prepared',
-    expiryDate: '',
-    pickupTime: '',
-    description: ''
+    foodName: "",
+    quantity: "",
+    mealsCount: "",
+    category: "prepared",
+    expiryDate: "",
+    pickupStartTime: "",
+    pickupEndTime: "",
+    pickupAddress: "",
+    latitude: "",
+    longitude: "",
+    description: "",
   });
+
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     });
+  };
+
+  const handleImageChange = (e) => {
+    const selectedFile = e.target.files[0];
+
+    if (selectedFile) {
+      setImage(selectedFile);
+      setPreview(URL.createObjectURL(selectedFile));
+    }
+  };
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      handleError("Geolocation is not supported by your browser");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData((prev) => ({
+          ...prev,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }));
+
+        handleSuccess("Location added successfully");
+      },
+      () => {
+        handleError("Unable to get your location");
+      }
+    );
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `${API_URL}/api/food/donate`,
-        formData,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+      const data = new FormData();
+
+      Object.keys(formData).forEach((key) => {
+        data.append(key, formData[key]);
+      });
+
+      if (image) {
+        data.append("image", image);
+      }
+
+      const res = await api.post("/food/donate", data, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
       handleSuccess(res.data.message);
-      navigate('/food-listings');
+      navigate("/food-listings");
     } catch (error) {
-      handleError(error.response?.data?.message || 'Failed to create food listing');
+      handleError(error.response?.data?.message || "Failed to create food listing");
     }
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden py-12 px-6 flex justify-center items-start text-white bg-[#050505] pt-32">
-      
-      {/* Background Glows */}
-      <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-green-500/10 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] bg-emerald-900/20 rounded-full blur-[120px] pointer-events-none"></div>
+    <div className="min-h-screen bg-[#050505] text-white flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-3xl bg-white/10 border border-white/20 rounded-3xl p-8 shadow-2xl">
+        <h1 className="text-3xl font-black mb-2">List Surplus Food</h1>
+        <p className="text-gray-300 mb-8">
+          Add details of safe surplus food so nearby NGOs can request pickup.
+        </p>
 
-      {/* Frosted Dark Glass Form Card */}
-      <div className="w-full max-w-2xl bg-white/5 backdrop-blur-xl p-10 sm:p-12 rounded-[2.5rem] shadow-2xl border border-white/10 mt-10 relative z-10">
-        <h2 className="text-3xl font-black mb-2 text-white">List Surplus Food</h2>
-        <p className="text-gray-400 mb-8 font-medium">Ensure the food is edible and packed properly.</p>
-        
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-sm text-gray-400 ml-1">Food Item Name</label>
-              <input 
-                type="text" 
-                name="foodName"
-                value={formData.foodName}
-                onChange={handleChange}
-                required 
-                placeholder="e.g. Pasta, Bread Rolls" 
-                className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 placeholder:text-gray-600 text-white transition-all" 
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-sm text-gray-400 ml-1">Quantity (Approx)</label>
-              <input 
-                type="text" 
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Food Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Food Item Name
+            </label>
+            <input
+              type="text"
+              name="foodName"
+              value={formData.foodName}
+              onChange={handleChange}
+              placeholder="Example: Veg Biryani, Roti Sabzi"
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+          </div>
+
+          {/* Quantity and Meals Count */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Quantity
+              </label>
+              <input
+                type="text"
                 name="quantity"
                 value={formData.quantity}
                 onChange={handleChange}
-                required 
-                placeholder="e.g. 10 Meals or 5kg" 
-                className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 placeholder:text-gray-600 text-white transition-all" 
+                placeholder="Example: 5 kg / 30 plates"
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Approx Meals Count
+              </label>
+              <input
+                type="number"
+                name="mealsCount"
+                value={formData.mealsCount}
+                onChange={handleChange}
+                placeholder="Example: 30"
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-sm text-gray-400 ml-1">Category</label>
-              <select 
-                name="category"
-                value={formData.category}
-                onChange={handleChange}
-                className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 text-white transition-all appearance-none [&>option]:bg-[#050505] [&>option]:text-white"
-              >
-                <option value="prepared">Prepared Food</option>
-                <option value="bakery">Bakery Items</option>
-                <option value="produce">Fresh Produce</option>
-                <option value="dairy">Dairy Products</option>
-                <option value="packaged">Packaged Food</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-bold text-sm text-gray-400 ml-1">Expiry Date & Time</label>
-              <input 
-                type="datetime-local" 
-                name="expiryDate"
-                value={formData.expiryDate}
-                onChange={handleChange}
-                required 
-                className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 text-white transition-all [color-scheme:dark]" 
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <label className="font-bold text-sm text-gray-400 ml-1">Preferred Pickup Time</label>
-            <input 
-              type="text" 
-              name="pickupTime"
-              value={formData.pickupTime}
+          {/* Category */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Category
+            </label>
+            <select
+              name="category"
+              value={formData.category}
               onChange={handleChange}
-              required 
-              placeholder="e.g. 2:00 PM - 6:00 PM" 
-              className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 placeholder:text-gray-600 text-white transition-all" 
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="prepared" className="text-black">Prepared Food</option>
+              <option value="bakery" className="text-black">Bakery Items</option>
+              <option value="fresh_produce" className="text-black">Fresh Produce</option>
+              <option value="dairy" className="text-black">Dairy Products</option>
+              <option value="packaged" className="text-black">Packaged Food</option>
+            </select>
+          </div>
+
+          {/* Image Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Food Image
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
+            />
+
+            {preview && (
+              <img
+                src={preview}
+                alt="Food preview"
+                className="mt-4 w-full h-56 object-cover rounded-2xl border border-white/20"
+              />
+            )}
+          </div>
+
+          {/* Expiry Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Expiry Date & Time
+            </label>
+            <input
+              type="datetime-local"
+              name="expiryDate"
+              value={formData.expiryDate}
+              onChange={handleChange}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
             />
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="font-bold text-sm text-gray-400 ml-1">Special Instructions (Optional)</label>
-            <textarea 
+          {/* Pickup Time Window */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Pickup Start Time
+              </label>
+              <input
+                type="datetime-local"
+                name="pickupStartTime"
+                value={formData.pickupStartTime}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Pickup End Time
+              </label>
+              <input
+                type="datetime-local"
+                name="pickupEndTime"
+                value={formData.pickupEndTime}
+                onChange={handleChange}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+
+          {/* Pickup Address */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Pickup Address
+            </label>
+            <textarea
+              name="pickupAddress"
+              value={formData.pickupAddress}
+              onChange={handleChange}
+              placeholder="Enter restaurant pickup address"
+              rows="3"
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+
+          {/* Location */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Latitude
+              </label>
+              <input
+                type="text"
+                name="latitude"
+                value={formData.latitude}
+                onChange={handleChange}
+                placeholder="Latitude"
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Longitude
+              </label>
+              <input
+                type="text"
+                name="longitude"
+                value={formData.longitude}
+                onChange={handleChange}
+                placeholder="Longitude"
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={useCurrentLocation}
+              className="bg-green-500 text-black font-bold px-4 py-3 rounded-xl hover:bg-green-400 transition"
+            >
+              Use My Location
+            </button>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Special Instructions
+            </label>
+            <textarea
               name="description"
               value={formData.description}
               onChange={handleChange}
-              placeholder="e.g. Contains dairy, needs refrigeration" 
-              className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 h-32 resize-none placeholder:text-gray-600 text-white transition-all" 
+              placeholder="Example: Please bring containers. Pickup before 8 PM."
+              rows="4"
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
 
-          <button type="submit" className="w-full bg-white text-black py-5 rounded-2xl font-black text-lg hover:bg-gray-200 hover:scale-[1.02] transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] mt-4">
+          <button
+            type="submit"
+            className="w-full bg-white text-black py-4 rounded-2xl font-black text-lg hover:bg-gray-200 hover:scale-[1.02] transition-all mt-4"
+          >
             Post Donation
           </button>
         </form>

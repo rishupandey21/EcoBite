@@ -1,307 +1,306 @@
-import React, { useState, useEffect } from 'react';
-import { MapPin, Navigation, Package, Search, PlusCircle, MessageSquare, Send, X, Building2, Phone } from 'lucide-react';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { handleSuccess, handleError } from '../utils';
+import React, { useEffect, useState } from "react";
+import api from "../api/axios";
+import { handleSuccess, handleError } from "../utils";
+import socket from "../socket";
+import { MapPin, Clock, Package, Utensils } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
-
-export default function FindFood() {
-  const { user } = useAuth();
+export default function FoodNearYouNGO() {
+  const [foods, setFoods] = useState([]);
+  const [location, setLocation] = useState(null);
   const [radius, setRadius] = useState(5);
-  const [availableFood, setAvailableFood] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [requestNotes, setRequestNotes] = useState({});
 
-  useEffect(() => {
-    fetchAvailableFoods();
-  }, []);
-
-  // Keep NGO page in sync so "Requested" can turn to "Accepted"
-  useEffect(() => {
-    if (!user) return;
-    const role = user.account_type || user.role;
-    if (role !== 'ngo') return;
-
-    const interval = setInterval(() => {
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      handleError("Geolocation is not supported by your browser");
       fetchAvailableFoods();
-    }, 5000);
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, [user]);
+    setLoading(true);
 
-  const fetchAvailableFoods = async () => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const currentLocation = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        };
+
+        setLocation(currentLocation);
+        fetchAvailableFoods(currentLocation.lat, currentLocation.lng, radius);
+      },
+      () => {
+        handleError("Location permission denied. Showing all available food.");
+        setLocation(null);
+        fetchAvailableFoods();
+      }
+    );
+  };
+
+  const fetchAvailableFoods = async (lat, lng, selectedRadius = radius) => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(
-        `${API_URL}/api/food/available`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      );
+      setLoading(true);
 
-      // Transform the data to match the expected structure
-      const transformedData = res.data.map(food => ({
-        id: food.id,
-        restaurant: food.restaurant?.name || 'Restaurant',
-        phone: food.restaurant?.phoneNumber || 'Not available',
-        item: `${food.foodName} (${food.quantity})`,
-        distance: null,
-        category: food.category,
-        timeListed: getTimeAgo(food.createdAt),
-        messages: [],
-        requestStatus: food.requestStatus || null,
-        requestId: food.requestId || null
-      }));
+      let url = "/food/available";
 
-      setAvailableFood(transformedData);
+      if (lat && lng) {
+        url = `/food/available?lat=${lat}&lng=${lng}&radius=${selectedRadius}`;
+      }
+
+      const res = await api.get(url);
+      setFoods(res.data || []);
     } catch (error) {
-      handleError('Failed to fetch available foods');
+      handleError(error.response?.data?.message || "Failed to fetch food");
     } finally {
       setLoading(false);
     }
   };
 
-  const getTimeAgo = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    
-    const minutes = Math.floor(diffMs / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    
-    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
-    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-    if (minutes > 0) return `${minutes} min${minutes > 1 ? 's' : ''} ago`;
-    return 'Just now';
-  };
+  const handleRadiusChange = (e) => {
+    const newRadius = e.target.value;
+    setRadius(newRadius);
 
-  const [activeChat, setActiveChat] = useState(null);
-  const [newMessage, setNewMessage] = useState("");
-
-  const filteredFood = availableFood;
-
-  const handleRequest = async (food) => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `${API_URL}/api/requests`,
-        { foodId: food.id },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      setAvailableFood((prev) =>
-        prev.map((f) =>
-          f.id === food.id
-            ? { ...f, requestStatus: res.data.status, requestId: res.data.id }
-            : f
-        )
-      );
-    } catch (error) {
-      handleError(error.response?.data?.message || 'Failed to send request');
+    if (location) {
+      fetchAvailableFoods(location.lat, location.lng, newRadius);
     }
   };
 
-  const openChat = (food) => {
-    setActiveChat(food);
-  };
+  const handleRequestPickup = async (foodId) => {
+  try {
+    const res = await api.post("/requests", {
+      foodId,
+      ngoNotes: requestNotes[foodId] || "Pickup requested by NGO",
+    });
 
-  const closeChat = () => {
-    setActiveChat(null);
-    setNewMessage("");
-  };
+    handleSuccess(res.data.message);
 
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!newMessage.trim()) return;
+    setRequestNotes((prev) => ({
+      ...prev,
+      [foodId]: "",
+    }));
 
-    // Create the new message (sender is 'ngo' here)
-    const newMsg = { sender: "ngo", text: " " + newMessage, time: "Just now" };
-    
-    // Update the active chat
-    const updatedChat = {
-      ...activeChat,
-      messages: [...activeChat.messages, newMsg]
+    if (location) {
+      fetchAvailableFoods(location.lat, location.lng, radius);
+    } else {
+      fetchAvailableFoods();
+    }
+  } catch (error) {
+    handleError(error.response?.data?.message || "Failed to request pickup");
+  }
+};
+
+  useEffect(() => {
+    getCurrentLocation();
+  }, []);
+
+  useEffect(() => {
+    const handleNewFood = (data) => {
+      handleSuccess(data.message || "New food available");
+
+      if (location) {
+        fetchAvailableFoods(location.lat, location.lng, radius);
+      } else {
+        fetchAvailableFoods();
+      }
     };
-    setActiveChat(updatedChat);
 
-    // Update the main array so the chat saves if they close and reopen it
-    setAvailableFood(availableFood.map(food => food.id === activeChat.id ? updatedChat : food));
-    setNewMessage("");
-  };
+    socket.on("new_food_available", handleNewFood);
+
+    return () => {
+      socket.off("new_food_available", handleNewFood);
+    };
+  }, [location, radius]);
 
   return (
-    <div className="min-h-screen relative overflow-hidden text-white bg-[#050505] pt-32 pb-12">
-      
-      {/* Background Glows */}
-      <div className="absolute top-[10%] right-[10%] w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[150px] pointer-events-none z-0"></div>
-      
-      <div className="max-w-6xl mx-auto px-6 relative z-10">
-        
-        {/* Header & Radius Slider */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-8">
+    <div className="min-h-screen relative overflow-hidden bg-[#050505] text-white pt-32 pb-12 px-4">
+      {/* Background */}
+      <div className="absolute top-[10%] left-[10%] w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[150px] pointer-events-none"></div>
+      <div className="absolute bottom-[20%] right-[-5%] w-[600px] h-[600px] bg-green-900/20 rounded-full blur-[150px] pointer-events-none"></div>
+
+      <div className="max-w-7xl mx-auto relative z-10">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-8">
           <div>
-            <h1 className="text-4xl font-black text-white mb-2 flex items-center gap-3">
-              <Search className="text-blue-400" size={32} /> Find Surplus Food
+            <h1 className="text-4xl font-black mb-2 flex items-center gap-3">
+              <MapPin className="text-green-400" size={34} />
+              Nearby Food Donations
             </h1>
-            <p className="text-gray-400 text-lg">Browse and request donations from nearby partners.</p>
+
+            <p className="text-gray-300 text-lg">
+              Find surplus food available near your NGO and request pickup.
+            </p>
           </div>
-          
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 p-4 rounded-2xl flex flex-col gap-2 w-full md:w-72 shadow-2xl">
-            <div className="flex justify-between items-center text-sm font-bold text-gray-300">
-              <span>Search Radius</span>
-              <span className="text-blue-400">{radius} km</span>
-            </div>
-            <input 
-              type="range" min="1" max="15" value={radius} onChange={(e) => setRadius(e.target.value)}
-              className="w-full accent-blue-500 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] font-bold text-gray-500 mt-1 uppercase tracking-widest">
-              <span>1 km</span><span>15 km</span>
-            </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <select
+              value={radius}
+              onChange={handleRadiusChange}
+              className="px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="5" className="text-black">
+                Within 5 km
+              </option>
+              <option value="10" className="text-black">
+                Within 10 km
+              </option>
+              <option value="20" className="text-black">
+                Within 20 km
+              </option>
+              <option value="50" className="text-black">
+                Within 50 km
+              </option>
+            </select>
+
+            <button
+              onClick={getCurrentLocation}
+              className="bg-green-500 text-black font-black px-5 py-3 rounded-xl hover:bg-green-400 transition"
+            >
+              Use My Location
+            </button>
           </div>
         </div>
 
-        {/* Food Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {loading ? (
-            <div className="md:col-span-2 lg:col-span-3 text-center py-20 bg-white/5 backdrop-blur-xl border border-white/10 border-dashed rounded-[2rem]">
-               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-r-2 border-white/20 border-t-blue-500 border-l-blue-500 mx-auto mb-4"></div>
-               <p className="text-gray-400">Loading available food...</p>
-            </div>
-          ) : filteredFood.length > 0 ? (
-            filteredFood.map((food) => (
-              <div key={food.id} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl flex flex-col group hover:-translate-y-1 hover:bg-white/10 hover:border-blue-500/50 transition-all relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-[50px] opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
-                
-                <div className="flex justify-between items-start mb-4">
-                  <span className="bg-white/10 text-gray-300 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10">
-                    {food.category}
-                  </span>
-                  <span className="text-xs text-gray-500 font-bold">{food.timeListed}</span>
-                </div>
+        {location ? (
+          <div className="mb-6 bg-green-500/10 border border-green-500/30 text-green-200 rounded-2xl p-4">
+            Location active: showing food within {radius} km.
+          </div>
+        ) : (
+          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 text-yellow-200 rounded-2xl p-4">
+            Location not active: showing all available food.
+          </div>
+        )}
 
-                <h3 className="text-2xl font-black text-white mb-1 line-clamp-2">{food.item}</h3>
-                <div className="space-y-2 mb-6">
-                  <p className="text-blue-400 font-bold flex items-center gap-1.5 text-sm">
-                    <Building2 size={14} /> {food.restaurant}
-                  </p>
-                  <p className="text-gray-400 font-medium flex items-center gap-1.5 text-sm">
-                    <Phone size={14} /> {food.phone}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 text-gray-400 font-medium text-sm mb-6 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-[#050505] border border-white/5 flex items-center justify-center">
-                    <Navigation size={14} className="text-red-400" />
+        {loading ? (
+          <div className="text-center text-gray-300 py-20">
+            Loading nearby food...
+          </div>
+        ) : foods.length === 0 ? (
+          <div className="bg-white/10 border border-white/20 rounded-3xl p-10 text-center">
+            <Package className="mx-auto text-gray-500 mb-4" size={48} />
+            <h2 className="text-2xl font-bold mb-2">No nearby food found</h2>
+            <p className="text-gray-300">
+              Try increasing the radius or check again later.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {foods.map((food) => (
+              <div
+                key={food.id}
+                className="bg-white/10 border border-white/20 rounded-3xl overflow-hidden shadow-xl hover:bg-white/[0.13] hover:border-green-500/40 transition-all"
+              >
+                {food.imageUrl ? (
+                  <img
+                    src={food.imageUrl}
+                    alt={food.foodName}
+                    className="w-full h-52 object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-52 bg-white/10 flex items-center justify-center text-gray-400">
+                    No Image
                   </div>
-                  <span>{food.distance} away</span>
-                </div>
+                )}
 
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => handleRequest(food)}
-                    disabled={food.requestStatus === 'pending' || food.requestStatus === 'accepted'}
-                    className={`flex-1 py-3.5 rounded-xl font-black transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2 ${
-                      food.requestStatus === 'accepted'
-                        ? 'bg-green-500 text-black cursor-not-allowed'
-                        : food.requestStatus === 'pending'
-                        ? 'bg-white/10 text-gray-300 border border-white/10 cursor-not-allowed'
-                        : 'bg-white text-black hover:bg-gray-200'
-                    }`}
-                  >
-                    <PlusCircle size={18} /> {food.requestStatus === 'accepted' ? 'Accepted' : food.requestStatus === 'pending' ? 'Requested' : 'Request'}
-                  </button>
-                  <button 
-                    onClick={() => openChat(food)}
-                    title="Chat with Restaurant"
-                    className="w-14 bg-white/5 border border-white/10 text-white rounded-xl flex items-center justify-center hover:bg-white/10 hover:border-blue-500/50 hover:text-blue-400 transition-all shadow-sm group-hover:bg-white/10"
-                  >
-                    <MessageSquare size={20} />
-                  </button>
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h2 className="text-xl font-black">{food.foodName}</h2>
+                      <p className="text-gray-300 text-sm">{food.category}</p>
+                    </div>
+
+                    {food.distance && (
+                      <span className="bg-green-500 text-black text-sm font-black px-3 py-1 rounded-full">
+                        {food.distance} km
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-sm text-gray-300 mb-5">
+                    <p>
+                      <span className="text-white font-semibold">
+                        Quantity:
+                      </span>{" "}
+                      {food.quantity}
+                    </p>
+
+                    <p className="flex items-center gap-2">
+                      <Utensils size={14} className="text-green-400" />
+                      <span>
+                        <span className="text-white font-semibold">
+                          Meals:
+                        </span>{" "}
+                        {food.mealsCount || "Not mentioned"}
+                      </span>
+                    </p>
+
+                    <p className="flex items-center gap-2">
+                      <Clock size={14} className="text-orange-400" />
+                      <span>
+                        <span className="text-white font-semibold">
+                          Expiry:
+                        </span>{" "}
+                        {new Date(food.expiryDate).toLocaleString()}
+                      </span>
+                    </p>
+
+                    <p>
+                      <span className="text-white font-semibold">Pickup:</span>{" "}
+                      {food.pickupAddress ||
+                        food.restaurant?.address ||
+                        "Not added"}
+                    </p>
+
+                    <p>
+                      <span className="text-white font-semibold">
+                        Restaurant:
+                      </span>{" "}
+                      {food.restaurant?.name || "Restaurant"}
+                    </p>
+
+                    {food.description && (
+                      <p>
+                        <span className="text-white font-semibold">Note:</span>{" "}
+                        {food.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {food.requestStatus ? (
+                    <button
+                      disabled
+                      className="w-full bg-gray-600 text-white py-3 rounded-xl font-bold cursor-not-allowed"
+                    >
+                      Requested: {food.requestStatus}
+                    </button>
+                  ) : (
+                    <>
+                      <textarea
+                        value={requestNotes[food.id] || ""}
+                        onChange={(e) =>
+                          setRequestNotes((prev) => ({
+                            ...prev,
+                            [food.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Add note for restaurant, e.g. Please pack food properly."
+                        rows="2"
+                        className="w-full mb-3 bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-green-500 placeholder:text-gray-500 resize-none"
+                      />
+
+                      <button
+                        onClick={() => handleRequestPickup(food.id)}
+                        className="w-full bg-white text-black py-3 rounded-xl font-black hover:bg-gray-200 transition"
+                      >
+                        Request Pickup
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-            ))
-          ) : (
-             <div className="md:col-span-2 lg:col-span-3 text-center py-20 bg-white/5 backdrop-blur-xl border border-white/10 border-dashed rounded-[2rem]">
-               <MapPin className="mx-auto text-gray-600 mb-4" size={48} />
-               <h3 className="text-xl font-bold text-white mb-2">No food found within {radius}km</h3>
-               <p className="text-gray-400">Try expanding your search radius using the slider above.</p>
-             </div>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {/* --- CHAT MODAL OVERLAY --- */}
-      {activeChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          {/* Using the exact same chat container styling as NgoRequests */}
-          <div className="w-full max-w-2xl bg-[#0a0a0a] border border-white/10 rounded-[2rem] shadow-2xl flex flex-col h-[600px] overflow-hidden">
-            
-            {/* Chat Header */}
-            <div className="p-6 border-b border-white/10 bg-white/5 flex justify-between items-center">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center border border-white/5">
-                  <Building2 className="text-blue-400" size={24} />
-                </div>
-                <div>
-                  <h2 className="font-bold text-xl text-white">{activeChat.restaurant}</h2>
-                  <p className="text-sm text-gray-400">Inquiry: <span className="text-blue-300 font-medium">{activeChat.item}</span></p>
-                </div>
-              </div>
-              <button onClick={closeChat} className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-gray-400 hover:text-white transition-all">
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Chat History Area (Reversed colors for NGO side) */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gradient-to-b from-transparent to-white/[0.02]">
-              {activeChat.messages.length === 0 && (
-                <div className="text-center text-gray-500 mt-10">
-                  <MessageSquare className="mx-auto mb-3 opacity-50" size={40} />
-                  <p>No messages yet. Send a message to coordinate pickup!</p>
-                </div>
-              )}
-              {activeChat.messages.map((msg, idx) => (
-                <div key={idx} className={`flex flex-col ${msg.sender === 'ngo' ? 'items-end' : 'items-start'}`}>
-                  <div className={`max-w-[80%] md:max-w-[60%] p-4 rounded-2xl ${
-                    msg.sender === 'ngo' 
-                      ? 'bg-blue-600 text-white rounded-tr-sm' // NGO messages are blue here
-                      : 'bg-white/10 text-gray-200 border border-white/5 rounded-tl-sm' // Restaurant messages are gray
-                  }`}>
-                    <p className="leading-relaxed">{msg.text}</p>
-                  </div>
-                  <span className="text-xs text-gray-500 mt-2 font-medium px-1">{msg.time}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Chat Input (Your exact form) */}
-            <div className="p-4 bg-white/5 border-t border-white/10">
-              <form onSubmit={handleSendMessage} className="flex gap-3">
-                <input 
-                  type="text" 
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type a message to the restaurant..." 
-                  className="flex-1 bg-[#050505] border border-white/10 rounded-2xl px-6 py-4 text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-600"
-                />
-                <button 
-                  type="submit"
-                  disabled={!newMessage.trim()}
-                  className="bg-white text-black w-14 h-14 rounded-2xl flex items-center justify-center hover:bg-gray-200 transition-all disabled:opacity-50 disabled:hover:bg-white shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-                >
-                  <Send size={20} className={newMessage.trim() ? "translate-x-0.5 -translate-y-0.5" : ""} />
-                </button>
-              </form>
-            </div>
-
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

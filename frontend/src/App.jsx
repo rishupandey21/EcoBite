@@ -5,6 +5,7 @@ import Home from './pages/Home';
 import { AuthProvider } from './context/AuthContext';
 
 
+
 import Register from './pages/Register';
 import Login from './pages/Login';  
 
@@ -18,6 +19,7 @@ import FoodNearYouNGO from './pages/FoodNearYouNGO';
 import ManageDeliveries from './pages/ManageDelivery';
 import NgoDashboard from './pages/NgoDashboard';
 import About from './pages/About';
+import AdminDashboard from "./pages/AdminDashboard";
 
 
 function App() {
@@ -40,7 +42,7 @@ function App() {
           <Route path="/manage-deliveries" element={<ManageDeliveries />} />
           <Route path="/ngo-dashboard" element={<NgoDashboard />} />
           <Route path="/about" element={<About />} />
-          
+          <Route path="/admin-dashboard" element={<AdminDashboard />} />
           
         </Routes>
       </Router>
