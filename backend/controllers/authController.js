@@ -66,7 +66,7 @@ exports.registerUser = async (req, res) => {
       - Restaurants and NGOs should be verified by admin later.
       - Admin should normally be created manually/development only.
     */
-    const isVerified = account_type === "volunteer" || account_type === "admin";
+    const isVerified = account_type === "admin";
 
     // Create user
     const newUser = await User.create({
